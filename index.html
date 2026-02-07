@@ -14,6 +14,7 @@
 <title>课时管理</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
 <style>
 :root {
   --bg: #0f0f1a;
@@ -67,6 +68,47 @@ body::before{
 }
 .chip b{font-size:14px;color:var(--text);font-weight:700}
 .chip.alert b{color:var(--warn)}
+
+/* Sync Status */
+.sync-status {
+  position: fixed;
+  top: calc(var(--safe-t) + 10px);
+  right: 16px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.sync-status.show {
+  opacity: 1;
+}
+.sync-status.online {
+  color: var(--success);
+  border-color: var(--success);
+}
+.sync-status.offline {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.sync-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
 
 /* ===== Tabs ===== */
 .tabs{
@@ -275,12 +317,19 @@ body::before{
 </head>
 <body>
 <div class="app" id="app"></div>
+<div class="sync-status" id="syncStatus"></div>
 
 <script>
 // ===== Data =====
 const KEY='tutor_v3';
+const SUPABASE_URL='https://jfwcisseawzpiaodrboi.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impmd2Npc3NlYXd6cGlhb2RyYm9pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA0NjQyOTgsImV4cCI6MjA4NjA0MDI5OH0.5tm1LT1WLMtCCHaFGj02W5jd2GXW_7QYXzl-sjVFqcQ';
 const COLORS=['#7c6aff','#4ecdc4','#ff6b6b','#ffb340','#45b7d1','#f78fb3','#6c5ce7','#00b894','#e17055','#636e72'];
 
+// Initialize Supabase
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Local storage functions
 function load(){try{const r=localStorage.getItem(KEY);return r?JSON.parse(r):{students:[],log:[]}}catch{return{students:[],log:[]}}}
 function save(d){localStorage.setItem(KEY,JSON.stringify(d))}
 function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
@@ -288,8 +337,206 @@ function td(){const d=new Date();return `${d.getFullYear()}/${String(d.getMonth(
 function acol(n){let h=0;for(let i=0;i<n.length;i++)h=n.charCodeAt(i)+((h<<5)-h);return COLORS[Math.abs(h)%COLORS.length]}
 function hap(){try{navigator.vibrate&&navigator.vibrate(10)}catch{}}
 
+// Sync status
+let syncStatus = { online: true, lastSync: null };
+let isSyncing = false;
+
+function updateSyncStatus(online) {
+  syncStatus.online = online;
+  syncStatus.lastSync = online ? new Date() : null;
+  const statusEl = document.querySelector('.sync-status');
+  if (statusEl) {
+    statusEl.className = `sync-status show ${online ? 'online' : 'offline'}`;
+    statusEl.textContent = online ? '在线' : '离线';
+    setTimeout(() => {
+      statusEl.classList.remove('show');
+    }, 3000);
+  }
+}
+
+// Check network status
+window.addEventListener('online', () => updateSyncStatus(true));
+window.addEventListener('offline', () => updateSyncStatus(false));
+
+// Supabase functions
+async function fetchFromSupabase() {
+  if (!navigator.onLine) return null;
+
+  try {
+    const { data: students, error: studentsError } = await supabase
+      .from('students')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (studentsError) throw studentsError;
+
+    const { data: lessonRecords, error: lessonError } = await supabase
+      .from('lesson_records')
+      .select('*')
+      .order('lesson_date', { ascending: false });
+
+    if (lessonError) throw lessonError;
+
+    const { data: renewalRecords, error: renewalError } = await supabase
+      .from('renewal_records')
+      .select('*')
+      .order('renewal_date', { ascending: false });
+
+    if (renewalError) throw renewalError;
+
+    // Process and combine data
+    const processedStudents = students.map(s => {
+      const studentLessons = lessonRecords.filter(lr => lr.student_id === s.id);
+      const studentRenewals = renewalRecords.filter(rr => rr.student_id === s.id);
+
+      return {
+        ...s,
+        lessons: studentLessons.reduce((sum, lr) => sum + lr.lesson_count, 0),
+        totalLessons: studentLessons.reduce((sum, lr) => sum + lr.lesson_count, 0),
+        lastLesson: studentLessons[0]?.lesson_date || null,
+        renewals: studentRenewals.map(rr => ({
+          date: rr.renewal_date,
+          amount: rr.amount,
+          note: rr.note
+        })),
+        lastRenewDate: studentRenewals[0]?.renewal_date || null
+      };
+    });
+
+    return {
+      students: processedStudents,
+      log: renewalRecords.map(rr => ({
+        studentName: students.find(s => s.id === rr.student_id)?.name || '',
+        studentId: rr.student_id,
+        date: rr.renewal_date,
+        amount: rr.amount,
+        note: rr.note
+      }))
+    };
+  } catch (error) {
+    console.error('Error fetching from Supabase:', error);
+    return null;
+  }
+}
+
+async function saveToSupabase(data) {
+  if (!navigator.onLine) return false;
+
+  try {
+    isSyncing = true;
+
+    // Save students
+    for (const student of data.students) {
+      const { error } = await supabase
+        .from('students')
+        .upsert(student, { onConflict: 'id' });
+
+      if (error) throw error;
+    }
+
+    // Save lesson records
+    for (const record of data.lessonRecords || []) {
+      const { error } = await supabase
+        .from('lesson_records')
+        .upsert(record, { onConflict: 'id' });
+
+      if (error) throw error;
+    }
+
+    // Save renewal records
+    for (const record of data.renewalRecords || []) {
+      const { error } = await supabase
+        .from('renewal_records')
+        .upsert(record, { onConflict: 'id' });
+
+      if (error) throw error;
+    }
+
+    isSyncing = false;
+    return true;
+  } catch (error) {
+    console.error('Error saving to Supabase:', error);
+    isSyncing = false;
+    return false;
+  }
+}
+
+async function syncWithSupabase() {
+  if (!navigator.onLine || isSyncing) return;
+
+  try {
+    isSyncing = true;
+    updateSyncStatus(true);
+
+    // Get fresh data from Supabase
+    const freshData = await fetchFromSupabase();
+
+    if (freshData) {
+      // Get current local data
+      const localData = load();
+
+      // Merge data - prefer fresh data from Supabase
+      const mergedData = {
+        students: freshData.students || localData.students || [],
+        log: freshData.log || localData.log || [],
+        lessonRecords: localData.lessonRecords || [],
+        renewalRecords: localData.renewalRecords || []
+      };
+
+      // Check for local lesson records that might not be in Supabase
+      if (localData.lessonRecords && freshData.students) {
+        const studentIds = freshData.students.map(s => s.id);
+        const localOnlyLessons = localData.lessonRecords.filter(lr =>
+          !studentIds.includes(lr.student_id)
+        );
+        if (localOnlyLessons.length > 0) {
+          mergedData.lessonRecords = [...mergedData.lessonRecords, ...localOnlyLessons];
+        }
+      }
+
+      // Check for local renewal records that might not be in Supabase
+      if (localData.renewalRecords && freshData.students) {
+        const studentIds = freshData.students.map(s => s.id);
+        const localOnlyRenewals = localData.renewalRecords.filter(rr =>
+          !studentIds.includes(rr.student_id)
+        );
+        if (localOnlyRenewals.length > 0) {
+          mergedData.renewalRecords = [...mergedData.renewalRecords, ...localOnlyRenewals];
+        }
+      }
+
+      save(mergedData);
+      S.data = mergedData;
+    }
+
+    isSyncing = false;
+  } catch (error) {
+    console.error('Sync error:', error);
+    isSyncing = false;
+    updateSyncStatus(false);
+  }
+}
+
 // ===== State =====
 let S={data:load(),tab:'all',exp:null,addOpen:false,confirm:null,search:'',settings:false};
+
+// Load data and sync with Supabase
+async function initializeApp() {
+  // Load from localStorage first
+  const localData = load();
+  S.data = localData;
+  R();
+
+  // Sync with Supabase after 1 second
+  setTimeout(syncWithSupabase, 1000);
+}
+
+// Auto-sync every 30 seconds when online
+setInterval(() => {
+  if (navigator.onLine && !isSyncing) {
+    syncWithSupabase();
+  }
+}, 30000);
 
 // ===== Render =====
 function R(){
@@ -298,7 +545,7 @@ function R(){
   const nr=students.filter(s=>s.lessons>=10);
   const q=search.toLowerCase();
   let list=tab==='renew'?nr:students;
-  if(q&&tab!=='log')list=list.filter(s=>s.name.includes(q)||(s.subject||'').includes(q)||(s.parentName||'').includes(q));
+  if(q&&tab!=='log')list=list.filter(s=>s.name.includes(q)||(s.contact||'').includes(q)||(s.notes||'').includes(q)||(s.parent_name||'').includes(q));
 
   document.getElementById('app').innerHTML=`
     <div class="hdr">
@@ -333,9 +580,10 @@ function rList(list){
         <div class="card-left">
           <div class="av" style="background:${acol(s.name)}">${s.name[0]}</div>
           <div style="min-width:0">
-            <div><span class="nm">${s.name}</span>${s.subject?`<span class="subj">${s.subject}</span>`:''}</div>
+            <div><span class="nm">${s.name}</span>${s.notes?`<span class="subj">${s.notes}</span>`:''}</div>
             ${nr?'<span class="rtag pulse">🔔 需续费</span>':''}
-            ${s.parentName||s.parentContact?`<div class="ct-info">${s.parentName?`<span>👤${s.parentName}</span>`:''}${s.parentContact?`<span>📱${s.parentContact}</span>`:''}</div>`:''}
+            ${s.parent_name?`<div class="ct-info"><span>👤${s.parent_name}</span>${s.contact?`<span>📱${s.contact}</span>`:''}</div>`:''}
+            ${!s.parent_name&&s.contact?`<div class="ct-info"><span>📱${s.contact}</span></div>`:''}
           </div>
         </div>
         <div class="cnt"><div class="n" style="color:${cc}">${s.lessons}</div><div class="l">/10</div></div>
@@ -348,8 +596,8 @@ function rList(list){
           ${nr?`<button class="btn btn-w" onclick="sCfm('renew','${s.id}')">💰 续费</button>`:''}
           <button class="btn btn-d btn-sm ml-auto" onclick="sCfm('del','${s.id}')">删除</button>
         </div>
-        ${s.renewals&&s.renewals.length?`
-          <div class="rhist"><strong>续费记录</strong><div>${s.renewals.map((r,i)=>`<span class="ritem">第${i+1}次 ${r.date}${r.amount?' ¥'+Number(r.amount).toLocaleString():''}</span>`).join('')}</div></div>
+        ${(S.data.log||[]).filter(l=>l.studentId===s.id).length?`
+          <div class="rhist"><strong>续费记录</strong><div>${(S.data.log||[]).filter(l=>l.studentId===s.id).map((r,i)=>`<span class="ritem">第${i+1}次 ${r.date}${r.amount?' ¥'+Number(r.amount).toLocaleString():''}</span>`).join('')}</div></div>
         `:''}
       `:''}
     </div>`;
@@ -375,14 +623,12 @@ function rAdd(){return `
     <button class="mx" onclick="cAdd()">✕</button>
     <h2>添加学生</h2>
     <div class="fg"><label class="fl">学生姓名 *</label><input class="fi" id="i-nm" placeholder="输入姓名"></div>
+    <div class="fg"><label class="fl">科目</label><input class="fi" id="i-sj" placeholder="如：数学、英语"></div>
     <div class="fr">
-      <div class="fg"><label class="fl">科目</label><input class="fi" id="i-sb" placeholder="如：数学"></div>
-      <div class="fg"><label class="fl">已上课时</label><input class="fi" id="i-ls" type="number" placeholder="0" inputmode="numeric"></div>
+      <div class="fg"><label class="fl">家长姓名</label><input class="fi" id="i-pn" placeholder="选填"></div>
+      <div class="fg"><label class="fl">家长联系方式</label><input class="fi" id="i-pc" placeholder="手机号/微信号"></div>
     </div>
-    <div class="fr">
-      <div class="fg"><label class="fl">家长姓名</label><input class="fi" id="i-pn" placeholder="如：张妈妈"></div>
-      <div class="fg"><label class="fl">家长电话/微信</label><input class="fi" id="i-pc" placeholder="手机号/微信"></div>
-    </div>
+    <div class="fg"><label class="fl">已上课时</label><input class="fi" id="i-ls" type="number" placeholder="0" inputmode="numeric" step="0.5"></div>
     <button class="fs" onclick="subAdd()">确认添加</button>
   </div></div>`}
 
@@ -393,7 +639,7 @@ function rCfm(){
     <h3>${isR?'确认续费':'确认删除'}</h3>
     <p>${isR?'课时归零并记录续费信息':'此操作不可撤销'}</p>
     ${isR?`
-      <div class="fg" style="text-align:left"><label class="fl">续费金额（元）</label><input class="fi" id="r-amt" type="number" placeholder="选填" inputmode="decimal"></div>
+      <div class="fg" style="text-align:left"><label class="fl">续费金额（元）</label><input class="fi" id="r-amt" type="number" placeholder="选填" inputmode="decimal" step="0.01"></div>
       <div class="fg" style="text-align:left"><label class="fl">续费日期</label><input class="fi" id="r-dt" value="${td()}"></div>
       <div class="fg" style="text-align:left"><label class="fl">备注</label><input class="fi" id="r-nt" placeholder="如：微信转账"></div>
     `:''}
@@ -408,6 +654,10 @@ function rSet(){return `
     <button class="mx" onclick="cSet()">✕</button>
     <h2>⚙ 设置</h2>
     <div class="settings-list">
+      <div class="settings-item" onclick="syncNow()">
+        <div><div class="si-label">🔄 同步数据</div><div class="si-hint">立即同步到云端</div></div>
+        <span class="si-arrow">›</span>
+      </div>
       <div class="settings-item" onclick="expData()">
         <div><div class="si-label">📤 导出数据</div><div class="si-hint">备份所有学生和续费记录</div></div>
         <span class="si-arrow">›</span>
@@ -423,8 +673,8 @@ function rSet(){return `
       </div>
     </div>
     <div style="margin-top:20px;text-align:center;font-size:11px;color:var(--text-dim)">
-      课时管理 v1.0 · 数据存储在本机<br>
-      建议定期导出备份 📦
+      课时管理 v2.0 · 数据已接入 Supabase 云存储<br>
+      本地数据作为离线缓存 📦
     </div>
   </div></div>`}
 
@@ -438,52 +688,216 @@ function cCfm(){S.confirm=null;R()}
 function oSet(){hap();S.settings=true;R()}
 function cSet(){S.settings=false;R()}
 
-function aL(id){
+async function aL(id){
   hap();
   const s=S.data.students.find(x=>x.id===id);if(!s)return;
+
+  // Create lesson record
+  const lessonRecord = {
+    id: gid(),
+    student_id: id,
+    lesson_count: 1,
+    lesson_date: td(),
+    note: ''
+  };
+
+  // Update student
   s.lessons++;s.totalLessons=(s.totalLessons||0)+1;s.lastLesson=td();
-  save(S.data);R();
+
+  // Add to lesson records
+  S.data.lessonRecords = S.data.lessonRecords || [];
+  S.data.lessonRecords.push(lessonRecord);
+
+  save(S.data);
+  R();
+
+  // Sync to Supabase
+  if (navigator.onLine) {
+    try {
+      const { error } = await supabase
+        .from('lesson_records')
+        .insert([lessonRecord]);
+
+      if (error) throw error;
+    } catch (err) {
+      console.error('Failed to sync lesson:', err);
+    }
+  }
+
   if(s.lessons===10){
     setTimeout(()=>{
-      alert(`🔔 ${s.name} 已满10次课！\n请通知${s.parentName||'家长'}续费。${s.parentContact?'\n📱 '+s.parentContact:''}`);
+      alert(`🔔 ${s.name} 已满10次课！\n请通知${s.parent_name||'家长'}续费。${s.contact?'\n📱 '+s.contact:''}`);
     },180);
   }
 }
-function uL(id){
+async function uL(id){
   hap();const s=S.data.students.find(x=>x.id===id);
   if(!s||s.lessons<=0)return;
-  s.lessons--;s.totalLessons=Math.max(0,(s.totalLessons||0)-1);
-  save(S.data);R();
+
+  // Find last lesson record
+  const lastLesson = (S.data.lessonRecords || [])
+    .filter(lr => lr.student_id === id)
+    .sort((a, b) => b.lesson_date.localeCompare(a.lesson_date))[0];
+
+  if (lastLesson) {
+    // Update lesson count
+    s.lessons--;s.totalLessons=Math.max(0,(s.totalLessons||0)-1);
+
+    // Remove lesson record
+    S.data.lessonRecords = (S.data.lessonRecords || [])
+      .filter(lr => lr.id !== lastLesson.id);
+
+    save(S.data);
+    R();
+
+    // Sync to Supabase
+    if (navigator.onLine) {
+      try {
+        const { error } = await supabase
+          .from('lesson_records')
+          .delete()
+          .eq('id', lastLesson.id);
+
+        if (error) throw error;
+      } catch (err) {
+        console.error('Failed to sync lesson deletion:', err);
+      }
+    }
+  }
 }
 
-function subAdd(){
+async function subAdd(){
   const nm=document.getElementById('i-nm').value.trim();
   if(!nm){alert('请输入学生姓名');return}
-  const ls=parseInt(document.getElementById('i-ls').value)||0;
-  S.data.students.push({
-    id:gid(),name:nm,
-    subject:document.getElementById('i-sb').value.trim(),
-    parentName:document.getElementById('i-pn').value.trim(),
-    parentContact:document.getElementById('i-pc').value.trim(),
-    lessons:ls,totalLessons:ls,renewals:[],createdAt:td()
-  });
-  save(S.data);hap();S.addOpen=false;R();
+  const ls=parseFloat(document.getElementById('i-ls').value)||0;
+  const subject = document.getElementById('i-sj').value.trim();
+  const parentName = document.getElementById('i-pn').value.trim();
+  const parentContact = document.getElementById('i-pc').value.trim();
+
+  // Create student
+  const student = {
+    id: gid(),
+    name: nm,
+    contact: parentContact,
+    parent_name: parentName,
+    total_lessons: ls,
+    completed_lessons: ls,
+    notes: subject,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+
+  S.data.students.push(student);
+  save(S.data);
+  hap();
+  S.addOpen = false;
+  R();
+
+  // Sync to Supabase
+  if (navigator.onLine) {
+    try {
+      const { error } = await supabase
+        .from('students')
+        .insert([student]);
+
+      if (error) throw error;
+    } catch (err) {
+      console.error('Failed to sync student:', err);
+    }
+  }
 }
 
-function doCfm(){
+async function doCfm(){
   const{type,studentId}=S.confirm;
   if(type==='renew'){
     const s=S.data.students.find(x=>x.id===studentId);if(!s)return;
-    const amt=document.getElementById('r-amt')?.value.trim()||'';
+    const amt=parseFloat(document.getElementById('r-amt')?.value.trim())||null;
     const dt=document.getElementById('r-dt')?.value.trim()||td();
     const nt=document.getElementById('r-nt')?.value.trim()||'';
-    const rec={date:dt,amount:amt,note:nt};
-    s.renewals=s.renewals||[];s.renewals.push(rec);
-    s.lastRenewDate=dt;s.lessons=0;
-    S.data.log=S.data.log||[];
-    S.data.log.push({...rec,studentName:s.name,studentId:s.id});
+
+    // Create renewal record
+    const renewalRecord = {
+      id: gid(),
+      student_id: studentId,
+      lessons_added: s.lessons,
+      amount: amt,
+      renewal_date: dt,
+      note: nt
+    };
+
+    // Update student
+    s.lessons = 0;
+    s.total_lessons = s.completed_lessons;
+    s.lastRenewDate = dt;
+
+    // Add to records
+    S.data.renewalRecords = S.data.renewalRecords || [];
+    S.data.renewalRecords.push(renewalRecord);
+
+    S.data.log = S.data.log || [];
+    S.data.log.push({
+      date: dt,
+      amount: amt,
+      note: nt,
+      studentName: s.name,
+      studentId: s.id
+    });
+
+    // Update student in Supabase
+    if (navigator.onLine) {
+      try {
+        const { error: studentError } = await supabase
+          .from('students')
+          .update({
+            total_lessons: s.total_lessons,
+            completed_lessons: s.completed_lessons,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', studentId);
+
+        if (studentError) throw studentError;
+
+        // Insert renewal record
+        const { error: renewalError } = await supabase
+          .from('renewal_records')
+          .insert([renewalRecord]);
+
+        if (renewalError) throw renewalError;
+      } catch (err) {
+        console.error('Failed to sync renewal:', err);
+      }
+    }
   }else{
-    S.data.students=S.data.students.filter(x=>x.id!==studentId);
+    // Delete student and related records
+    if (navigator.onLine) {
+      try {
+        // Delete related records first (cascade)
+        await supabase
+          .from('lesson_records')
+          .delete()
+          .eq('student_id', studentId);
+
+        await supabase
+          .from('renewal_records')
+          .delete()
+          .eq('student_id', studentId);
+
+        // Delete student
+        await supabase
+          .from('students')
+          .delete()
+          .eq('id', studentId);
+      } catch (err) {
+        console.error('Failed to delete student from Supabase:', err);
+      }
+    }
+
+    S.data.students = S.data.students.filter(x=>x.id!==studentId);
+    // Also remove related records from local storage
+    S.data.lessonRecords = (S.data.lessonRecords || []).filter(lr => lr.student_id !== studentId);
+    S.data.renewalRecords = (S.data.renewalRecords || []).filter(rr => rr.student_id !== studentId);
+    S.data.log = (S.data.log || []).filter(l => l.studentId !== studentId);
+
     if(S.exp===studentId)S.exp=null;
   }
   save(S.data);hap();S.confirm=null;R();
@@ -497,6 +911,7 @@ function expData(){
   const a=document.createElement('a');
   a.href=url;a.download=`课时管理_备份_${td().replace(/\//g,'-')}.json`;
   a.click();URL.revokeObjectURL(url);
+  alert('✅ 数据已导出为 JSON 文件');
 }
 function impData(e){
   const file=e.target.files[0];if(!file)return;
@@ -515,17 +930,31 @@ function impData(e){
   reader.readAsText(file);
   e.target.value='';
 }
+function syncNow(){
+  if (navigator.onLine) {
+    syncWithSupabase();
+    alert('🔄 正在同步数据...');
+  } else {
+    alert('❌ 当前处于离线状态，请连接网络后重试');
+  }
+}
 function clrData(){
   if(confirm('⚠️ 确定要清空所有数据吗？\n建议先导出备份！')){
     if(confirm('再次确认：真的要删除全部学生和续费记录？')){
-      S.data={students:[],log:[]};save(S.data);
+      S.data={students:[],log:[],lessonRecords:[],renewalRecords:[]};save(S.data);
       S.settings=false;R();
+      // Clear Supabase data
+      if (navigator.onLine) {
+        supabase.from('students').delete().neq('id', 'non-existent');
+        supabase.from('lesson_records').delete().neq('id', 'non-existent');
+        supabase.from('renewal_records').delete().neq('id', 'non-existent');
+      }
     }
   }
 }
 
 // ===== Init =====
-R();
+initializeApp();
 
 // ===== Service Worker =====
 if('serviceWorker' in navigator){

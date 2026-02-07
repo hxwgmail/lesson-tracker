@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试页面</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+    <h1>Supabase 测试</h1>
+    <div id="output"></div>
+
+    <script>
+        const SUPABASE_URL = 'https://jfwcisseawzpiaodrboi.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5NiwiaWF0IjoxODUzNjkwOTk2fQ.SW_Ap5_i2kZ0x6p1z5KjZQeR5X9yVxW6b6cY8p8I7bE';
+
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        async function testConnection() {
+            const output = document.getElementById('output');
+
+            try {
+                // 测试连接
+                const { data, error } = await supabase.from('students').select('count', { count: 'exact', head: true });
+
+                if (error) {
+                    output.innerHTML = `<p style="color: red;">连接失败: ${error.message}</p>`;
+                } else {
+                    output.innerHTML = `<p style="color: green;">连接成功！学生表存在</p>`;
+                }
+            } catch (err) {
+                output.innerHTML = `<p style="color: red;">错误: ${err.message}</p>`;
+            }
+        }
+
+        testConnection();
+    </script>
+</body>
+</html>

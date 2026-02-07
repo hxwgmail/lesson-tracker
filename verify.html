@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>功能验证</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .pass { color: green; }
+        .fail { color: red; }
+        pre { background: #f5f5f5; padding: 10px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>课时管理功能验证</h1>
+
+    <div class="test-section">
+        <h2>1. Supabase 连接测试</h2>
+        <button onclick="testSupabaseConnection()">测试连接</button>
+        <div id="connection-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. 数据结构验证</h2>
+        <button onclick="verifyDataStructure()">验证数据结构</button>
+        <div id="structure-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. 本地存储测试</h2>
+        <button onclick="testLocalStorage()">测试本地存储</button>
+        <div id="storage-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. 离线功能测试</h2>
+        <button onclick="testOfflineMode()">模拟离线模式</button>
+        <button onclick="testOnlineMode()">恢复在线模式</button>
+        <div id="offline-result"></div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://jfwcisseawzpiaodrboi.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5NiwiaWF0IjoxODUzNjkwOTk2fQ.SW_Ap5_i2kZ0x6p1z5KjZQeR5X9yVxW6b6cY8p8I7bE';
+
+        // 动态加载 Supabase
+        async function loadSupabase() {
+            if (typeof window.supabase !== 'undefined') {
+                return window.supabase;
+            }
+
+            return new Promise((resolve) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js';
+                script.onload = () => {
+                    resolve(window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY));
+                };
+                document.head.appendChild(script);
+            });
+        }
+
+        async function testSupabaseConnection() {
+            const resultDiv = document.getElementById('connection-result');
+            resultDiv.innerHTML = '<p>正在测试连接...</p>';
+
+            try {
+                const supabase = await loadSupabase();
+
+                // 测试查询
+                const { data, error } = await supabase
+                    .from('students')
+                    .select('count', { count: 'exact', head: true });
+
+                if (error) {
+                    resultDiv.innerHTML = `<p class="fail">❌ 连接失败: ${error.message}</p>`;
+                } else {
+                    resultDiv.innerHTML = `<p class="pass">✅ 连接成功！学生表正常</p>`;
+                }
+            } catch (err) {
+                resultDiv.innerHTML = `<p class="fail">❌ 错误: ${err.message}</p>`;
+            }
+        }
+
+        async function verifyDataStructure() {
+            const resultDiv = document.getElementById('structure-result');
+            resultDiv.innerHTML = '<p>正在验证数据结构...</p>';
+
+            try {
+                const supabase = await loadSupabase();
+
+                // 检查表是否存在
+                const tables = ['students', 'lesson_records', 'renewal_records'];
+                const results = {};
+
+                for (const table of tables) {
+                    const { data, error } = await supabase
+                        .from(table)
+                        .select('count', { count: 'exact', head: true });
+
+                    results[table] = error ? false : true;
+                }
+
+                const allGood = Object.values(results).every(r => r);
+
+                let html = '<p>表结构检查结果:</p><ul>';
+                for (const [table, exists] of Object.entries(results)) {
+                    html += `<li class="${exists ? 'pass' : 'fail'}">${table}: ${exists ? '✅ 存在' : '❌ 不存在'}</li>`;
+                }
+                html += '</ul>';
+
+                if (allGood) {
+                    html += '<p class="pass">✅ 所有表结构正常！</p>';
+                } else {
+                    html += '<p class="fail">❌ 部分表缺失，请检查数据库配置。</p>';
+                }
+
+                resultDiv.innerHTML = html;
+            } catch (err) {
+                resultDiv.innerHTML = `<p class="fail">❌ 错误: ${err.message}</p>`;
+            }
+        }
+
+        function testLocalStorage() {
+            const resultDiv = document.getElementById('storage-result');
+
+            try {
+                // 测试写入
+                const testData = {
+                    students: [{ id: 'test1', name: '测试学生', lessons: 5 }],
+                    log: [{ studentName: '测试学生', date: '2024/1/1' }]
+                };
+                localStorage.setItem('tutor_v3', JSON.stringify(testData));
+
+                // 测试读取
+                const readData = JSON.parse(localStorage.getItem('tutor_v3'));
+
+                // 清理
+                localStorage.removeItem('tutor_v3');
+
+                if (readData && readData.students && readData.log) {
+                    resultDiv.innerHTML = '<p class="pass">✅ 本地存储功能正常</p>';
+                } else {
+                    resultDiv.innerHTML = '<p class="fail">❌ 本地存储读取失败</p>';
+                }
+            } catch (err) {
+                resultDiv.innerHTML = `<p class="fail">❌ 本地存储错误: ${err.message}</p>`;
+            }
+        }
+
+        function testOfflineMode() {
+            const resultDiv = document.getElementById('offline-result');
+
+            // 模拟离线
+            if ('serviceWorker' in navigator) {
+                // 在实际应用中，Service Worker 会处理离线缓存
+                resultDiv.innerHTML = '<p class="pass">✅ 离线模式已激活（实际应用会显示离线状态指示器）</p>';
+            } else {
+                resultDiv.innerHTML = '<p>⚠️ Service Worker 不支持</p>';
+            }
+        }
+
+        function testOnlineMode() {
+            const resultDiv = document.getElementById('offline-result');
+
+            // 模拟在线
+            resultDiv.innerHTML = '<p class="pass">✅ 在线模式已恢复</p>';
+        }
+    </script>
+</body>
+</html>

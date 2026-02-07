@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="课时管理">
+<meta name="theme-color" content="#1a1a2e">
+<meta name="description" content="一对一教培学生课时记录与续费提醒">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<title>课时管理</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0f0f1a;
+  --card: #1a1a2e;
+  --card-alt: #1e1e35;
+  --border: #2a2a45;
+  --text: #e8e8f0;
+  --text-dim: #8888a8;
+  --accent: #7c6aff;
+  --accent-soft: rgba(124,106,255,0.13);
+  --warn: #ffb340;
+  --warn-soft: rgba(255,179,64,0.10);
+  --danger: #ff6b6b;
+  --success: #4ecdc4;
+  --success-soft: rgba(78,205,196,0.10);
+  --safe-t: env(safe-area-inset-top, 20px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{background:var(--bg)}
+body{
+  font-family:'Noto Sans SC',-apple-system,'PingFang SC','Helvetica Neue',sans-serif;
+  background:var(--bg);color:var(--text);
+  min-height:100vh;min-height:100dvh;
+  overflow-x:hidden;overscroll-behavior-y:contain;
+}
+body::before{
+  content:'';position:fixed;inset:0;
+  background:
+    radial-gradient(ellipse at 20% 10%, rgba(124,106,255,0.05) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 90%, rgba(78,205,196,0.03) 0%, transparent 60%);
+  pointer-events:none;z-index:0;
+}
+.app{
+  position:relative;z-index:1;
+  max-width:480px;margin:0 auto;
+  padding:calc(var(--safe-t) + 8px) 16px calc(var(--safe-b) + 88px);
+}
+
+/* ===== Header ===== */
+.hdr{padding:4px 0 18px}
+.hdr h1{
+  font-size:24px;font-weight:700;letter-spacing:-0.5px;
+  background:linear-gradient(135deg,#7c6aff 30%,#4ecdc4 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+.hdr-stats{display:flex;gap:14px;margin-top:10px;flex-wrap:wrap}
+.chip{
+  font-size:11px;color:var(--text-dim);
+  display:flex;align-items:center;gap:4px;
+}
+.chip b{font-size:14px;color:var(--text);font-weight:700}
+.chip.alert b{color:var(--warn)}
+
+/* ===== Tabs ===== */
+.tabs{
+  display:flex;gap:3px;
+  background:var(--card);border-radius:13px;padding:3px;
+  margin-bottom:14px;
+}
+.tab{
+  flex:1;padding:9px 0;border:none;border-radius:11px;
+  background:0;color:var(--text-dim);
+  font:500 12.5px/1 inherit;cursor:pointer;transition:.2s;
+  position:relative;
+}
+.tab.on{background:var(--accent);color:#fff;font-weight:600;box-shadow:0 2px 14px rgba(124,106,255,.35)}
+.tab .bdg{
+  font-size:10px;font-weight:700;
+  background:rgba(255,179,64,.85);color:#1a1a2e;
+  padding:1px 6px;border-radius:7px;margin-left:3px;
+  vertical-align:1px;
+}
+.tab.on .bdg{background:rgba(255,255,255,.28);color:#fff}
+
+/* ===== Search ===== */
+.sbar{position:relative;margin-bottom:12px}
+.sbar input{
+  width:100%;padding:10px 14px 10px 34px;
+  background:var(--card);border:1px solid var(--border);border-radius:12px;
+  color:var(--text);font:14px/1.4 inherit;outline:0;
+}
+.sbar input:focus{border-color:var(--accent)}
+.sbar i{position:absolute;left:11px;top:50%;transform:translateY(-50%);font-style:normal;font-size:14px;color:var(--text-dim)}
+
+/* ===== Cards ===== */
+.card{
+  background:var(--card);border:1px solid var(--border);
+  border-radius:16px;padding:15px 16px;margin-bottom:10px;
+  cursor:pointer;position:relative;overflow:hidden;
+  transition:border .2s;
+}
+.card.warn{border-color:rgba(255,179,64,.3)}
+.card.warn::after{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--warn),#ff8c40);
+}
+.card-row{display:flex;justify-content:space-between;align-items:center}
+.card-left{display:flex;align-items:center;gap:11px;flex:1;min-width:0}
+.av{
+  width:40px;height:40px;border-radius:12px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:16px;color:#fff;
+}
+.nm{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.subj{
+  font-size:10.5px;color:var(--accent);background:var(--accent-soft);
+  padding:2px 7px;border-radius:6px;margin-left:5px;white-space:nowrap;
+}
+.rtag{font-size:10.5px;color:var(--warn);font-weight:600;display:flex;align-items:center;gap:2px}
+.ct-info{font-size:11px;color:var(--text-dim);margin-top:3px;display:flex;gap:10px}
+.cnt{text-align:right;flex-shrink:0;padding-left:10px}
+.cnt .n{font-size:28px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.cnt .l{font-size:11px;color:var(--text-dim)}
+
+/* Progress */
+.prog{height:4px;background:var(--border);border-radius:4px;margin-top:11px;overflow:hidden}
+.prog-fill{height:100%;border-radius:4px;transition:width .35s ease}
+
+/* Expanded */
+.acts{
+  margin-top:13px;padding-top:13px;
+  border-top:1px solid var(--border);
+  display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+}
+.btn{
+  padding:9px 16px;border:none;border-radius:11px;
+  font:600 12.5px/1 inherit;cursor:pointer;
+  display:flex;align-items:center;gap:4px;
+  transition:transform .1s;
+}
+.btn:active{transform:scale(.95)}
+.btn-p{background:var(--accent);color:#fff}
+.btn-w{background:var(--warn);color:#1a1a2e}
+.btn-g{background:var(--accent-soft);color:var(--accent)}
+.btn-d{background:0;color:var(--danger);border:1px solid rgba(255,107,107,.25);font-size:11.5px;font-weight:500}
+.btn-sm{padding:8px 13px;font-size:11.5px}
+.ml-auto{margin-left:auto}
+.rhist{
+  width:100%;margin-top:10px;padding:10px 12px;
+  background:rgba(124,106,255,.05);border-radius:10px;
+  font-size:12px;color:var(--text-dim);
+}
+.rhist strong{color:var(--text)}
+.ritem{
+  display:inline-block;background:var(--card);
+  padding:3px 9px;border-radius:7px;margin:4px 4px 0 0;
+  font-size:11px;border:1px solid var(--border);
+}
+
+/* ===== Renewal Log ===== */
+.log-total{
+  text-align:center;margin-bottom:14px;padding:14px;
+  background:var(--success-soft);border-radius:14px;
+}
+.log-total .amt{font-size:24px;font-weight:700;color:var(--success)}
+.log-total .lbl{font-size:12px;color:var(--text-dim)}
+.log-card{
+  background:var(--card);border:1px solid var(--border);
+  border-radius:13px;padding:13px 15px;margin-bottom:8px;
+}
+.log-top{display:flex;justify-content:space-between;align-items:center}
+.log-nm{font-weight:600;font-size:14px}
+.log-dt{font-size:12px;color:var(--success)}
+.log-det{font-size:12px;color:var(--text-dim);margin-top:5px}
+
+/* ===== FAB ===== */
+.fab{
+  position:fixed;z-index:50;
+  bottom:calc(var(--safe-b) + 24px);right:max(24px, calc(50% - 240px + 24px));
+  width:54px;height:54px;border-radius:16px;
+  background:linear-gradient(135deg,#7c6aff,#5a4fd4);
+  border:none;color:#fff;font-size:26px;cursor:pointer;
+  box-shadow:0 4px 20px rgba(124,106,255,.4);
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .15s;
+}
+.fab:active{transform:scale(.88)}
+
+/* ===== Settings gear ===== */
+.gear{
+  position:fixed;z-index:50;
+  bottom:calc(var(--safe-b) + 24px);left:max(24px, calc(50% - 240px + 24px));
+  width:44px;height:44px;border-radius:13px;
+  background:var(--card);border:1px solid var(--border);
+  color:var(--text-dim);font-size:20px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+.gear:active{transform:scale(.9)}
+
+/* ===== Overlay / Modal ===== */
+.ov{
+  position:fixed;inset:0;background:rgba(0,0,0,.55);
+  z-index:100;display:flex;align-items:flex-end;justify-content:center;
+  animation:fi .18s;
+}
+.modal{
+  background:var(--card);border-radius:20px 20px 0 0;
+  padding:22px 20px calc(var(--safe-b) + 22px);
+  width:100%;max-width:480px;animation:su .28s ease;
+}
+.modal h2{font-size:17px;margin-bottom:16px;font-weight:700}
+.mx{float:right;background:0;border:0;color:var(--text-dim);font-size:22px;cursor:pointer;margin-top:-2px}
+.fg{margin-bottom:12px}
+.fl{font-size:11.5px;color:var(--text-dim);margin-bottom:5px;display:block;font-weight:500}
+.fi{
+  width:100%;padding:11px 13px;background:var(--bg);
+  border:1px solid var(--border);border-radius:11px;
+  color:var(--text);font:15px/1.3 inherit;outline:0;
+}
+.fi:focus{border-color:var(--accent)}
+.fr{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fs{
+  width:100%;padding:13px;background:var(--accent);color:#fff;
+  border:none;border-radius:13px;font:600 15px/1 inherit;
+  cursor:pointer;margin-top:4px;
+}
+.fs:active{opacity:.85}
+
+/* Confirm */
+.cdlg{
+  position:fixed;inset:0;background:rgba(0,0,0,.55);
+  z-index:200;display:flex;align-items:center;justify-content:center;
+  animation:fi .12s;
+}
+.cbox{
+  background:var(--card);border-radius:20px;padding:26px 22px;
+  width:88%;max-width:340px;text-align:center;
+  border:1px solid var(--border);
+}
+.cbox h3{font-size:16px;margin-bottom:7px}
+.cbox p{font-size:12.5px;color:var(--text-dim);margin-bottom:18px}
+.cbtns{display:flex;gap:10px}
+.cbtns .btn{flex:1;justify-content:center;padding:12px}
+
+/* Settings panel */
+.settings-list{display:flex;flex-direction:column;gap:10px}
+.settings-item{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:13px 15px;background:var(--bg);border-radius:12px;
+  cursor:pointer;
+}
+.settings-item:active{opacity:.8}
+.si-label{font-size:14px}
+.si-hint{font-size:11px;color:var(--text-dim)}
+.si-arrow{color:var(--text-dim);font-size:16px}
+
+/* Empty */
+.empty{text-align:center;padding:50px 20px;color:var(--text-dim)}
+.empty-ico{font-size:44px;margin-bottom:10px}
+.empty-txt{font-size:13px}
+
+/* Animations */
+@keyframes fi{from{opacity:0}to{opacity:1}}
+@keyframes su{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
+.pulse{animation:pulse 2s infinite}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+
+<script>
+// ===== Data =====
+const KEY='tutor_v3';
+const COLORS=['#7c6aff','#4ecdc4','#ff6b6b','#ffb340','#45b7d1','#f78fb3','#6c5ce7','#00b894','#e17055','#636e72'];
+
+function load(){try{const r=localStorage.getItem(KEY);return r?JSON.parse(r):{students:[],log:[]}}catch{return{students:[],log:[]}}}
+function save(d){localStorage.setItem(KEY,JSON.stringify(d))}
+function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+function td(){const d=new Date();return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`}
+function acol(n){let h=0;for(let i=0;i<n.length;i++)h=n.charCodeAt(i)+((h<<5)-h);return COLORS[Math.abs(h)%COLORS.length]}
+function hap(){try{navigator.vibrate&&navigator.vibrate(10)}catch{}}
+
+// ===== State =====
+let S={data:load(),tab:'all',exp:null,addOpen:false,confirm:null,search:'',settings:false};
+
+// ===== Render =====
+function R(){
+  const{data,tab,exp,addOpen,confirm,search,settings}=S;
+  const{students,log}=data;
+  const nr=students.filter(s=>s.lessons>=10);
+  const q=search.toLowerCase();
+  let list=tab==='renew'?nr:students;
+  if(q&&tab!=='log')list=list.filter(s=>s.name.includes(q)||(s.subject||'').includes(q)||(s.parentName||'').includes(q));
+
+  document.getElementById('app').innerHTML=`
+    <div class="hdr">
+      <h1>📚 课时管理</h1>
+      <div class="hdr-stats">
+        <div class="chip">学生 <b>${students.length}</b></div>
+        <div class="chip ${nr.length?'alert':''}">待续费 <b>${nr.length}</b></div>
+        <div class="chip">累计续费 <b>${log.length}</b>次</div>
+      </div>
+    </div>
+    <div class="tabs">
+      <div class="tab ${tab==='all'?'on':''}" onclick="T('all')">全部</div>
+      <div class="tab ${tab==='renew'?'on':''}" onclick="T('renew')">待续费${nr.length?`<span class="bdg">${nr.length}</span>`:''}</div>
+      <div class="tab ${tab==='log'?'on':''}" onclick="T('log')">续费记录</div>
+    </div>
+    ${tab!=='log'?`<div class="sbar"><i>🔍</i><input placeholder="搜索学生 / 科目 / 家长…" value="${search}" oninput="S.search=this.value;R()"></div>`:''}
+    ${tab==='log'?rLog(log):rList(list)}
+    <button class="fab" onclick="oAdd()" aria-label="添加学生">＋</button>
+    <button class="gear" onclick="oSet()" aria-label="设置">⚙</button>
+    ${addOpen?rAdd():''}${confirm?rCfm():''}${settings?rSet():''}
+  `;
+}
+
+function rList(list){
+  if(!list.length)return `<div class="empty"><div class="empty-ico">${S.tab==='renew'?'🎉':'📋'}</div><div class="empty-txt">${S.tab==='renew'?'暂无待续费学生':'点击右下角 ＋ 添加学生'}</div></div>`;
+  return list.map(s=>{
+    const p=Math.min(s.lessons/10,1)*100,nr=s.lessons>=10,ne=s.lessons>=8,op=S.exp===s.id;
+    const bc=nr?'var(--warn)':ne?'#ffb340':'var(--accent)',cc=nr?'var(--warn)':'var(--accent)';
+    return `
+    <div class="card ${nr?'warn':''}" onclick="X('${s.id}')">
+      <div class="card-row">
+        <div class="card-left">
+          <div class="av" style="background:${acol(s.name)}">${s.name[0]}</div>
+          <div style="min-width:0">
+            <div><span class="nm">${s.name}</span>${s.subject?`<span class="subj">${s.subject}</span>`:''}</div>
+            ${nr?'<span class="rtag pulse">🔔 需续费</span>':''}
+            ${s.parentName||s.parentContact?`<div class="ct-info">${s.parentName?`<span>👤${s.parentName}</span>`:''}${s.parentContact?`<span>📱${s.parentContact}</span>`:''}</div>`:''}
+          </div>
+        </div>
+        <div class="cnt"><div class="n" style="color:${cc}">${s.lessons}</div><div class="l">/10</div></div>
+      </div>
+      <div class="prog"><div class="prog-fill" style="width:${p}%;background:${bc}"></div></div>
+      ${op?`
+        <div class="acts" onclick="event.stopPropagation()">
+          <button class="btn btn-p" onclick="aL('${s.id}')">＋ 记一次课</button>
+          <button class="btn btn-g btn-sm" onclick="uL('${s.id}')">↩ 撤销</button>
+          ${nr?`<button class="btn btn-w" onclick="sCfm('renew','${s.id}')">💰 续费</button>`:''}
+          <button class="btn btn-d btn-sm ml-auto" onclick="sCfm('del','${s.id}')">删除</button>
+        </div>
+        ${s.renewals&&s.renewals.length?`
+          <div class="rhist"><strong>续费记录</strong><div>${s.renewals.map((r,i)=>`<span class="ritem">第${i+1}次 ${r.date}${r.amount?' ¥'+Number(r.amount).toLocaleString():''}</span>`).join('')}</div></div>
+        `:''}
+      `:''}
+    </div>`;
+  }).join('');
+}
+
+function rLog(log){
+  if(!log.length)return '<div class="empty"><div class="empty-ico">📝</div><div class="empty-txt">暂无续费记录</div></div>';
+  const sorted=[...log].sort((a,b)=>b.date.localeCompare(a.date));
+  let tot=0;sorted.forEach(r=>{if(r.amount)tot+=Number(r.amount)});
+  return `
+    ${tot?`<div class="log-total"><div class="lbl">累计收款</div><div class="amt">¥${tot.toLocaleString()}</div></div>`:''}
+    ${sorted.map(r=>`
+      <div class="log-card">
+        <div class="log-top"><span class="log-nm">${r.studentName}</span><span class="log-dt">${r.date}</span></div>
+        <div class="log-det">${r.amount?'¥'+Number(r.amount).toLocaleString():''}${r.note?' · '+r.note:''}</div>
+      </div>
+    `).join('')}`;
+}
+
+function rAdd(){return `
+  <div class="ov" onclick="cAdd()"><div class="modal" onclick="event.stopPropagation()">
+    <button class="mx" onclick="cAdd()">✕</button>
+    <h2>添加学生</h2>
+    <div class="fg"><label class="fl">学生姓名 *</label><input class="fi" id="i-nm" placeholder="输入姓名"></div>
+    <div class="fr">
+      <div class="fg"><label class="fl">科目</label><input class="fi" id="i-sb" placeholder="如：数学"></div>
+      <div class="fg"><label class="fl">已上课时</label><input class="fi" id="i-ls" type="number" placeholder="0" inputmode="numeric"></div>
+    </div>
+    <div class="fr">
+      <div class="fg"><label class="fl">家长姓名</label><input class="fi" id="i-pn" placeholder="如：张妈妈"></div>
+      <div class="fg"><label class="fl">家长电话/微信</label><input class="fi" id="i-pc" placeholder="手机号/微信"></div>
+    </div>
+    <button class="fs" onclick="subAdd()">确认添加</button>
+  </div></div>`}
+
+function rCfm(){
+  const c=S.confirm,isR=c.type==='renew';
+  return `
+  <div class="cdlg" onclick="cCfm()"><div class="cbox" onclick="event.stopPropagation()">
+    <h3>${isR?'确认续费':'确认删除'}</h3>
+    <p>${isR?'课时归零并记录续费信息':'此操作不可撤销'}</p>
+    ${isR?`
+      <div class="fg" style="text-align:left"><label class="fl">续费金额（元）</label><input class="fi" id="r-amt" type="number" placeholder="选填" inputmode="decimal"></div>
+      <div class="fg" style="text-align:left"><label class="fl">续费日期</label><input class="fi" id="r-dt" value="${td()}"></div>
+      <div class="fg" style="text-align:left"><label class="fl">备注</label><input class="fi" id="r-nt" placeholder="如：微信转账"></div>
+    `:''}
+    <div class="cbtns">
+      <button class="btn btn-g" onclick="cCfm()">取消</button>
+      <button class="btn ${isR?'btn-w':'btn-p'}" style="${isR?'':'background:var(--danger)'}" onclick="doCfm()">确认</button>
+    </div>
+  </div></div>`}
+
+function rSet(){return `
+  <div class="ov" onclick="cSet()"><div class="modal" onclick="event.stopPropagation()">
+    <button class="mx" onclick="cSet()">✕</button>
+    <h2>⚙ 设置</h2>
+    <div class="settings-list">
+      <div class="settings-item" onclick="expData()">
+        <div><div class="si-label">📤 导出数据</div><div class="si-hint">备份所有学生和续费记录</div></div>
+        <span class="si-arrow">›</span>
+      </div>
+      <div class="settings-item" onclick="document.getElementById('imp-file').click()">
+        <div><div class="si-label">📥 导入数据</div><div class="si-hint">从备份文件恢复数据</div></div>
+        <span class="si-arrow">›</span>
+      </div>
+      <input type="file" id="imp-file" accept=".json" style="display:none" onchange="impData(event)">
+      <div class="settings-item" onclick="clrData()">
+        <div><div class="si-label" style="color:var(--danger)">🗑 清空所有数据</div><div class="si-hint">删除全部学生和续费记录</div></div>
+        <span class="si-arrow">›</span>
+      </div>
+    </div>
+    <div style="margin-top:20px;text-align:center;font-size:11px;color:var(--text-dim)">
+      课时管理 v1.0 · 数据存储在本机<br>
+      建议定期导出备份 📦
+    </div>
+  </div></div>`}
+
+// ===== Actions =====
+function T(t){hap();S.tab=t;S.exp=null;R()}
+function X(id){hap();S.exp=S.exp===id?null:id;R()}
+function oAdd(){hap();S.addOpen=true;R();setTimeout(()=>{const e=document.getElementById('i-nm');e&&e.focus()},120)}
+function cAdd(){S.addOpen=false;R()}
+function sCfm(t,id){hap();S.confirm={type:t,studentId:id};R()}
+function cCfm(){S.confirm=null;R()}
+function oSet(){hap();S.settings=true;R()}
+function cSet(){S.settings=false;R()}
+
+function aL(id){
+  hap();
+  const s=S.data.students.find(x=>x.id===id);if(!s)return;
+  s.lessons++;s.totalLessons=(s.totalLessons||0)+1;s.lastLesson=td();
+  save(S.data);R();
+  if(s.lessons===10){
+    setTimeout(()=>{
+      alert(`🔔 ${s.name} 已满10次课！\n请通知${s.parentName||'家长'}续费。${s.parentContact?'\n📱 '+s.parentContact:''}`);
+    },180);
+  }
+}
+function uL(id){
+  hap();const s=S.data.students.find(x=>x.id===id);
+  if(!s||s.lessons<=0)return;
+  s.lessons--;s.totalLessons=Math.max(0,(s.totalLessons||0)-1);
+  save(S.data);R();
+}
+
+function subAdd(){
+  const nm=document.getElementById('i-nm').value.trim();
+  if(!nm){alert('请输入学生姓名');return}
+  const ls=parseInt(document.getElementById('i-ls').value)||0;
+  S.data.students.push({
+    id:gid(),name:nm,
+    subject:document.getElementById('i-sb').value.trim(),
+    parentName:document.getElementById('i-pn').value.trim(),
+    parentContact:document.getElementById('i-pc').value.trim(),
+    lessons:ls,totalLessons:ls,renewals:[],createdAt:td()
+  });
+  save(S.data);hap();S.addOpen=false;R();
+}
+
+function doCfm(){
+  const{type,studentId}=S.confirm;
+  if(type==='renew'){
+    const s=S.data.students.find(x=>x.id===studentId);if(!s)return;
+    const amt=document.getElementById('r-amt')?.value.trim()||'';
+    const dt=document.getElementById('r-dt')?.value.trim()||td();
+    const nt=document.getElementById('r-nt')?.value.trim()||'';
+    const rec={date:dt,amount:amt,note:nt};
+    s.renewals=s.renewals||[];s.renewals.push(rec);
+    s.lastRenewDate=dt;s.lessons=0;
+    S.data.log=S.data.log||[];
+    S.data.log.push({...rec,studentName:s.name,studentId:s.id});
+  }else{
+    S.data.students=S.data.students.filter(x=>x.id!==studentId);
+    if(S.exp===studentId)S.exp=null;
+  }
+  save(S.data);hap();S.confirm=null;R();
+}
+
+// ===== Data Management =====
+function expData(){
+  const str=JSON.stringify(S.data,null,2);
+  const blob=new Blob([str],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=`课时管理_备份_${td().replace(/\//g,'-')}.json`;
+  a.click();URL.revokeObjectURL(url);
+}
+function impData(e){
+  const file=e.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(ev){
+    try{
+      const d=JSON.parse(ev.target.result);
+      if(d.students){
+        if(confirm(`将导入 ${d.students.length} 名学生、${(d.log||[]).length} 条续费记录。\n⚠️ 这会覆盖当前数据，确认？`)){
+          S.data=d;save(S.data);S.settings=false;R();
+          alert('✅ 导入成功！');
+        }
+      }else{alert('文件格式不正确')}
+    }catch{alert('文件解析失败')}
+  };
+  reader.readAsText(file);
+  e.target.value='';
+}
+function clrData(){
+  if(confirm('⚠️ 确定要清空所有数据吗？\n建议先导出备份！')){
+    if(confirm('再次确认：真的要删除全部学生和续费记录？')){
+      S.data={students:[],log:[]};save(S.data);
+      S.settings=false;R();
+    }
+  }
+}
+
+// ===== Init =====
+R();
+
+// ===== Service Worker =====
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('./sw.js')
+      .then(r=>console.log('SW registered'))
+      .catch(e=>console.log('SW failed:',e));
+  });
+}
+</script>
+</body>
+</html>

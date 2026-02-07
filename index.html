@@ -332,7 +332,7 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // Local storage functions
 function load(){try{const r=localStorage.getItem(KEY);return r?JSON.parse(r):{students:[],log:[]}}catch{return{students:[],log:[]}}}
 function save(d){localStorage.setItem(KEY,JSON.stringify(d))}
-function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+function generateId(){return crypto.randomUUID()}
 function td(){const d=new Date();return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`}
 function acol(n){let h=0;for(let i=0;i<n.length;i++)h=n.charCodeAt(i)+((h<<5)-h);return COLORS[Math.abs(h)%COLORS.length]}
 function hap(){try{navigator.vibrate&&navigator.vibrate(10)}catch{}}
@@ -384,13 +384,28 @@ async function fetchFromSupabase() {
 
     if (renewalError) throw renewalError;
 
-    // Process and combine data
+    // Process and combine data with parent_name compatibility
     const processedStudents = students.map(s => {
       const studentLessons = lessonRecords.filter(lr => lr.student_id === s.id);
       const studentRenewals = renewalRecords.filter(rr => rr.student_id === s.id);
 
+      // Handle parent_name compatibility
+      let parentName = s.parent_name;
+      let notes = s.notes || '';
+      if (!parentName && notes.includes('家长:')) {
+        // Extract parent_name from notes if parent_name field doesn't exist
+        const match = notes.match(/家长:([^|]+)/);
+        if (match) {
+          parentName = match[1].trim();
+          // Remove parent info from notes for display
+          notes = notes.replace(/\|?家长:[^|]+/, '').trim();
+        }
+      }
+
       return {
         ...s,
+        parent_name: parentName,
+        notes: notes,
         lessons: studentLessons.reduce((sum, lr) => sum + lr.lesson_count, 0),
         totalLessons: studentLessons.reduce((sum, lr) => sum + lr.lesson_count, 0),
         lastLesson: studentLessons[0]?.lesson_date || null,
@@ -425,13 +440,46 @@ async function saveToSupabase(data) {
   try {
     isSyncing = true;
 
-    // Save students
+    // Save students with parent_name compatibility handling
     for (const student of data.students) {
+      // Prepare student data, handle parent_name compatibility
+      const studentData = {
+        id: student.id,
+        name: student.name,
+        contact: student.contact,
+        total_lessons: student.total_lessons,
+        completed_lessons: student.completed_lessons,
+        notes: student.notes || '',
+        created_at: student.created_at,
+        updated_at: student.updated_at
+      };
+
+      // Try to include parent_name if it exists
+      if (student.parent_name) {
+        studentData.parent_name = student.parent_name;
+      }
+
       const { error } = await supabase
         .from('students')
-        .upsert(student, { onConflict: 'id' });
+        .upsert(studentData, { onConflict: 'id' });
 
-      if (error) throw error;
+      // If parent_name column doesn't exist, store it in notes
+      if (error && error.message.includes('parent_name')) {
+        const fallbackData = { ...studentData };
+        // Append parent_name to notes if not already there
+        if (student.parent_name && !fallbackData.notes.includes(student.parent_name)) {
+          fallbackData.notes = fallbackData.notes ? `${fallbackData.notes}|家长:${student.parent_name}` : `家长:${student.parent_name}`;
+        }
+        delete fallbackData.parent_name;
+
+        const { error: fallbackError } = await supabase
+          .from('students')
+          .upsert(fallbackData, { onConflict: 'id' });
+
+        if (fallbackError) throw fallbackError;
+      } else if (error) {
+        throw error;
+      }
     }
 
     // Save lesson records
@@ -694,7 +742,7 @@ async function aL(id){
 
   // Create lesson record
   const lessonRecord = {
-    id: gid(),
+    id: generateId(),
     student_id: id,
     lesson_count: 1,
     lesson_date: td(),
@@ -776,7 +824,7 @@ async function subAdd(){
 
   // Create student
   const student = {
-    id: gid(),
+    id: generateId(),
     name: nm,
     contact: parentContact,
     parent_name: parentName,
@@ -793,14 +841,34 @@ async function subAdd(){
   S.addOpen = false;
   R();
 
-  // Sync to Supabase
+  // Sync to Supabase with parent_name compatibility
   if (navigator.onLine) {
     try {
       const { error } = await supabase
         .from('students')
         .insert([student]);
 
-      if (error) throw error;
+      // If parent_name column doesn't exist, fallback to storing in notes
+      if (error && error.message.includes('parent_name')) {
+        const fallbackStudent = { ...student };
+        if (parentName) {
+          fallbackStudent.notes = subject ? `${subject}|家长:${parentName}` : `家长:${parentName}`;
+        }
+        delete fallbackStudent.parent_name;
+
+        const { error: fallbackError } = await supabase
+          .from('students')
+          .insert([fallbackStudent]);
+
+        if (fallbackError) throw fallbackError;
+
+        // Update local student to match fallback format
+        student.parent_name = undefined;
+        student.notes = fallbackStudent.notes;
+        save(S.data);
+      } else if (error) {
+        throw error;
+      }
     } catch (err) {
       console.error('Failed to sync student:', err);
     }
@@ -817,7 +885,7 @@ async function doCfm(){
 
     // Create renewal record
     const renewalRecord = {
-      id: gid(),
+      id: generateId(),
       student_id: studentId,
       lessons_added: s.lessons,
       amount: amt,

@@ -15,6 +15,19 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
+<script>
+// Fallback: if Supabase fails to load, try unpkg CDN
+if (typeof window.supabase === 'undefined') {
+  var script = document.createElement('script');
+  script.src = 'https://unpkg.com/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js';
+  script.onerror = function() {
+    // If both CDNs fail, disable cloud sync and use localStorage only
+    console.warn('Supabase library failed to load, running in offline mode');
+    window.SUPABASE_OFFLINE = true;
+  };
+  document.head.appendChild(script);
+}
+</script>
 <style>
 :root {
   --bg: #0f0f1a;
@@ -360,6 +373,11 @@ window.addEventListener('offline', () => updateSyncStatus(false));
 
 // Supabase functions
 async function fetchFromSupabase() {
+  // Check if Supabase is available
+  if (typeof window.supabase === 'undefined' || window.SUPABASE_OFFLINE) {
+    console.log('Supabase not available, using local data only');
+    return null;
+  }
   if (!navigator.onLine) return null;
 
   try {
@@ -1028,10 +1046,47 @@ function clrData(){
 }
 
 // ===== Init =====
+// Global error handler for iOS Safari
+window.addEventListener('error', function(e) {
+  console.error('Global error:', e.message);
+  // Prevent error from blocking page load
+  return true;
+});
+
+// Initialize app
 initializeApp();
 
+// iOS Safari: Try syncing after user interaction (required for some network requests)
+let hasInteracted = false;
+function handleUserInteraction() {
+  if (!hasInteracted && navigator.onLine && typeof window.supabase !== 'undefined') {
+    hasInteracted = true;
+    fetchFromSupabase().then(cloudData => {
+      if (cloudData) {
+        S.data = {
+          students: cloudData.students || [],
+          log: cloudData.log || [],
+          lessonRecords: [],
+          renewalRecords: []
+        };
+        save(S.data);
+        R();
+      }
+    }).catch(err => {
+      console.log('Post-interaction sync failed:', err);
+    });
+  }
+}
+
+// Add interaction listeners
+['touchstart', 'click', 'keydown'].forEach(event => {
+  document.addEventListener(event, handleUserInteraction, { once: true, passive: true });
+});
+
 // ===== Service Worker =====
-if('serviceWorker' in navigator){
+// Disable Service Worker for iOS compatibility (static pages don't need it)
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+if (!isIOS && 'serviceWorker' in navigator) {
   window.addEventListener('load',()=>{
     navigator.serviceWorker.register('./sw.js')
       .then(r=>console.log('SW registered'))

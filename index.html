@@ -930,39 +930,53 @@ async function doCfm(){
       }
     }
   }else{
-    // Delete student and related records
+    // Delete student from local storage immediately
+    S.data.students = S.data.students.filter(x=>x.id!==studentId);
+    S.data.lessonRecords = (S.data.lessonRecords || []).filter(lr => lr.student_id !== studentId);
+    S.data.renewalRecords = (S.data.renewalRecords || []).filter(rr => rr.student_id !== studentId);
+    S.data.log = (S.data.log || []).filter(l => l.studentId !== studentId);
+    if(S.exp===studentId)S.exp=null;
+
+    // Save to localStorage immediately
+    save(S.data);
+    R();
+
+    // Delete from Supabase (fire and forget, but with proper error handling)
     if (navigator.onLine) {
       try {
         // Delete related records first (cascade)
-        await supabase
+        const { error: lessonError } = await supabase
           .from('lesson_records')
           .delete()
           .eq('student_id', studentId);
 
-        await supabase
+        if (lessonError) console.error('Failed to delete lesson records:', lessonError);
+
+        const { error: renewalError } = await supabase
           .from('renewal_records')
           .delete()
           .eq('student_id', studentId);
 
+        if (renewalError) console.error('Failed to delete renewal records:', renewalError);
+
         // Delete student
-        await supabase
+        const { error: studentError } = await supabase
           .from('students')
           .delete()
           .eq('id', studentId);
+
+        if (studentError) console.error('Failed to delete student:', studentError);
+
+        // After successful deletion, force sync to ensure cache is cleared
+        if (!lessonError && !renewalError && !studentError) {
+          await syncWithSupabase();
+        }
       } catch (err) {
         console.error('Failed to delete student from Supabase:', err);
       }
     }
-
-    S.data.students = S.data.students.filter(x=>x.id!==studentId);
-    // Also remove related records from local storage
-    S.data.lessonRecords = (S.data.lessonRecords || []).filter(lr => lr.student_id !== studentId);
-    S.data.renewalRecords = (S.data.renewalRecords || []).filter(rr => rr.student_id !== studentId);
-    S.data.log = (S.data.log || []).filter(l => l.studentId !== studentId);
-
-    if(S.exp===studentId)S.exp=null;
   }
-  save(S.data);hap();S.confirm=null;R();
+  hap();S.confirm=null;
 }
 
 // ===== Data Management =====

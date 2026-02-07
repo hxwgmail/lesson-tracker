@@ -546,30 +546,28 @@ let S={data:load(),tab:'all',exp:null,addOpen:false,confirm:null,search:'',setti
 
 // Load data and sync with Supabase
 async function initializeApp() {
-  // Try to load from Supabase first (cloud as source of truth)
-  if (navigator.onLine) {
-    const cloudData = await fetchFromSupabase();
-    if (cloudData) {
-      S.data = {
-        students: cloudData.students || [],
-        log: cloudData.log || [],
-        lessonRecords: [],
-        renewalRecords: []
-      };
-      save(S.data);
-      R();
-      return;
-    }
-  }
-
-  // Fallback to localStorage if offline or fetch fails
+  // Load from localStorage first for instant display
   const localData = load();
   S.data = localData;
   R();
 
-  // Try to sync after 1 second if we're using local data
+  // Then try to sync with Supabase in background
   if (navigator.onLine) {
-    setTimeout(syncWithSupabase, 1000);
+    // Non-blocking sync - don't await, let it happen in background
+    fetchFromSupabase().then(cloudData => {
+      if (cloudData) {
+        S.data = {
+          students: cloudData.students || [],
+          log: cloudData.log || [],
+          lessonRecords: [],
+          renewalRecords: []
+        };
+        save(S.data);
+        R();
+      }
+    }).catch(err => {
+      console.log('Background sync failed, using local data:', err);
+    });
   }
 }
 

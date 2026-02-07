@@ -516,45 +516,21 @@ async function syncWithSupabase() {
     isSyncing = true;
     updateSyncStatus(true);
 
-    // Get fresh data from Supabase
+    // Get fresh data from Supabase and use it directly (cloud as source of truth)
     const freshData = await fetchFromSupabase();
 
     if (freshData) {
-      // Get current local data
-      const localData = load();
-
-      // Merge data - prefer fresh data from Supabase
-      const mergedData = {
-        students: freshData.students || localData.students || [],
-        log: freshData.log || localData.log || [],
-        lessonRecords: localData.lessonRecords || [],
-        renewalRecords: localData.renewalRecords || []
+      // Use cloud data directly, no merging - cloud is the source of truth
+      const cloudData = {
+        students: freshData.students || [],
+        log: freshData.log || [],
+        lessonRecords: [],
+        renewalRecords: []
       };
 
-      // Check for local lesson records that might not be in Supabase
-      if (localData.lessonRecords && freshData.students) {
-        const studentIds = freshData.students.map(s => s.id);
-        const localOnlyLessons = localData.lessonRecords.filter(lr =>
-          !studentIds.includes(lr.student_id)
-        );
-        if (localOnlyLessons.length > 0) {
-          mergedData.lessonRecords = [...mergedData.lessonRecords, ...localOnlyLessons];
-        }
-      }
-
-      // Check for local renewal records that might not be in Supabase
-      if (localData.renewalRecords && freshData.students) {
-        const studentIds = freshData.students.map(s => s.id);
-        const localOnlyRenewals = localData.renewalRecords.filter(rr =>
-          !studentIds.includes(rr.student_id)
-        );
-        if (localOnlyRenewals.length > 0) {
-          mergedData.renewalRecords = [...mergedData.renewalRecords, ...localOnlyRenewals];
-        }
-      }
-
-      save(mergedData);
-      S.data = mergedData;
+      save(cloudData);
+      S.data = cloudData;
+      R();
     }
 
     isSyncing = false;
@@ -570,13 +546,31 @@ let S={data:load(),tab:'all',exp:null,addOpen:false,confirm:null,search:'',setti
 
 // Load data and sync with Supabase
 async function initializeApp() {
-  // Load from localStorage first
+  // Try to load from Supabase first (cloud as source of truth)
+  if (navigator.onLine) {
+    const cloudData = await fetchFromSupabase();
+    if (cloudData) {
+      S.data = {
+        students: cloudData.students || [],
+        log: cloudData.log || [],
+        lessonRecords: [],
+        renewalRecords: []
+      };
+      save(S.data);
+      R();
+      return;
+    }
+  }
+
+  // Fallback to localStorage if offline or fetch fails
   const localData = load();
   S.data = localData;
   R();
 
-  // Sync with Supabase after 1 second
-  setTimeout(syncWithSupabase, 1000);
+  // Try to sync after 1 second if we're using local data
+  if (navigator.onLine) {
+    setTimeout(syncWithSupabase, 1000);
+  }
 }
 
 // Auto-sync every 30 seconds when online
